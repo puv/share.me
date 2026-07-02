@@ -54,6 +54,7 @@ a:hover {
 
 /* ---- Upload Page ---- */
 .upload-page {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -113,6 +114,45 @@ a:hover {
     font-size: 0.85rem;
     color: var(--gray);
     margin-top: 8px;
+}
+
+.drop-zone-sub a {
+    color: var(--orange);
+    text-decoration: underline;
+}
+
+/* ---- Upload User Bar ---- */
+.upload-user-bar {
+    position: absolute;
+    top: 16px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.9rem;
+}
+
+.upload-user-name {
+    color: var(--dark-gray);
+    font-weight: 600;
+}
+
+.upload-user-logout {
+    background: none;
+    border: 1px solid var(--mid-gray);
+    border-radius: var(--radius);
+    color: var(--gray);
+    cursor: pointer;
+    padding: 5px 10px;
+    display: flex;
+    align-items: center;
+    font-size: 0.8rem;
+    line-height: 0;
+}
+
+.upload-user-logout:hover {
+    color: #d32f2f;
+    border-color: #d32f2f;
 }
 
 /* ---- File List ---- */
@@ -578,89 +618,46 @@ a:hover {
     margin-bottom: 16px;
 }
 
-/* ---- Admin (keep existing styles) ---- */
-.admin-page {
-    padding: 24px;
-}
-
-.admin-stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 16px;
-    margin-bottom: 24px;
-}
-
-.admin-stat {
-    background: var(--light-gray);
-    border: 1px solid var(--mid-gray);
-    border-radius: var(--radius);
-    padding: 16px;
-    text-align: center;
-}
-
-.admin-stat-value {
-    font-size: 1.8rem;
-    font-weight: 700;
-}
-
-.admin-stat-label {
-    font-size: 0.85rem;
-    color: var(--gray);
-    margin-top: 4px;
-}
-
-.admin-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9rem;
-}
-
-.admin-table th,
-.admin-table td {
-    text-align: left;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--mid-gray);
-}
-
-.admin-table th {
-    font-weight: 600;
-    color: var(--dark-gray);
-}
-
-.admin-login {
-    max-width: 400px;
-    margin: 48px auto;
-    padding: 32px;
-    border: 1px solid var(--mid-gray);
-    border-radius: var(--radius);
-}
-
-.admin-login h1 {
-    margin-bottom: 20px;
+/* ---- Admin ---- */
+.admin-layout {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 32px 24px;
 }
 
 .admin-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
     margin-bottom: 24px;
+}
+
+.admin-header h1 {
+    font-size: 1.4rem;
+    margin: 0;
 }
 
 .admin-tabs {
     display: flex;
-    gap: 8px;
-    margin-bottom: 24px;
+    gap: 6px;
+    flex-wrap: wrap;
 }
 
 .admin-tab {
-    padding: 8px 16px;
+    padding: 7px 16px;
     border: 1px solid var(--mid-gray);
     border-radius: var(--radius);
     background: var(--white);
     cursor: pointer;
     font-family: inherit;
-    font-size: 0.9rem;
-    transition: background-color 0.15s;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--dark-gray);
+    transition:
+        background-color 0.15s,
+        color 0.15s;
 }
 
 .admin-tab:hover {
@@ -671,6 +668,123 @@ a:hover {
     background: var(--orange);
     color: var(--white);
     border-color: var(--orange);
+}
+
+.admin-loading {
+    text-align: center;
+    padding: 48px 0;
+    color: var(--gray);
+    font-size: 1rem;
+}
+
+.admin-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+}
+
+.admin-stat-card {
+    background: var(--light-gray);
+    border: 1px solid var(--mid-gray);
+    border-radius: var(--radius);
+    padding: 20px 16px;
+    text-align: center;
+    transition: box-shadow 0.15s;
+}
+
+.admin-stat-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.admin-stat-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--dark-gray);
+    line-height: 1.2;
+}
+
+.admin-stat-label {
+    font-size: 0.8rem;
+    color: var(--gray);
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.admin-table th,
+.admin-table td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--mid-gray);
+    white-space: nowrap;
+}
+
+.admin-table th {
+    font-weight: 600;
+    color: var(--dark-gray);
+    background: var(--light-gray);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.admin-table tbody tr:hover {
+    background: var(--light-gray);
+}
+
+.admin-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.admin-section-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--dark-gray);
+    margin: 20px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--mid-gray);
+}
+
+/* ---- Badge Variants ---- */
+.badge-protected {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.badge-expired {
+    background: #fce4ec;
+    color: #c62828;
+}
+
+.badge-active {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+/* ---- Admin Settings Form ---- */
+.admin-settings-form .form-row > input {
+    flex: 1;
+}
+
+.admin-settings-form .form-row > select {
+    flex: 0 0 auto;
+    min-width: 70px;
+    max-width: 80px;
+}
+
+.admin-settings-form .form-group {
+    margin-bottom: 14px;
+}
+
+.admin-settings-form .btn {
+    margin-top: 8px;
 }
 
 /* ---- Responsive ---- */

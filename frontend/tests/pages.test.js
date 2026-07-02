@@ -30,17 +30,36 @@ jest.mock('../src/api', () => ({
         adminDeleteUpload: jest.fn(),
         adminGetSettings: jest.fn(),
         adminUpdateSettings: jest.fn(),
+        login: jest.fn(),
+        register: jest.fn(),
+        getMe: jest.fn(),
     },
     fileDownloadUrl: (id) => '/api/file/' + id,
     zipDownloadUrl: (id) => '/api/upload/' + id + '/zip',
     qrDownloadUrl: (id) => '/api/upload/' + id + '/qr',
 }));
 
+// Mock AuthContext — default to guest
+const mockUseAuth = jest.fn(() => ({
+    user: null,
+    loading: false,
+    login: jest.fn(),
+    register: jest.fn(),
+    logout: jest.fn(),
+    getToken: jest.fn(() => null),
+}));
+
+jest.mock('../src/context/AuthContext', () => ({
+    useAuth: () => mockUseAuth(),
+    AuthProvider: ({ children }) => children,
+}));
+
 import { api } from '../src/api';
 import UploadPage from '../src/pages/UploadPage';
 import DownloadPage from '../src/pages/DownloadPage';
-import AdminLoginPage from '../src/pages/AdminLoginPage';
 import AdminPage from '../src/pages/AdminPage';
+import LoginPage from '../src/pages/LoginPage';
+import RegisterPage from '../src/pages/RegisterPage';
 
 function renderWithRouter(ui, { route = '/' } = {}) {
     window.history.pushState({}, 'Test page', route);
@@ -57,7 +76,25 @@ describe('UploadPage', () => {
     test('renders the drop zone centered on page', () => {
         renderWithRouter(<UploadPage />);
         expect(screen.getByText(/Click to browse/)).toBeInTheDocument();
-        expect(screen.getByText('No account needed')).toBeInTheDocument();
+        expect(screen.getByText(/50 MB limit/)).toBeInTheDocument();
+    });
+
+    test('shows login and register links for guest users', () => {
+        renderWithRouter(<UploadPage />);
+        expect(screen.getByText('Login')).toBeInTheDocument();
+        expect(screen.getByText('Register')).toBeInTheDocument();
+    });
+
+    test('clicking Login link does not trigger file upload dialog', () => {
+        renderWithRouter(<UploadPage />);
+        fireEvent.click(screen.getByText('Login'));
+        expect(screen.queryByRole('button', { name: /Upload/i })).not.toBeInTheDocument();
+    });
+
+    test('clicking Register link does not trigger file upload dialog', () => {
+        renderWithRouter(<UploadPage />);
+        fireEvent.click(screen.getByText('Register'));
+        expect(screen.queryByRole('button', { name: /Upload/i })).not.toBeInTheDocument();
     });
 
     test('does not show upload button when no files selected', () => {
@@ -234,6 +271,55 @@ describe('UploadPage', () => {
             const btn = screen.getByRole('button', { name: /Uploading/ });
             expect(btn).toBeDisabled();
         });
+    });
+
+    test('shows user bar and 1 GB limit when logged in', () => {
+        mockUseAuth.mockReturnValue({
+            user: { id: 'u1', username: 'john', maxUploadSize: 1073741824 },
+            loading: false,
+            login: jest.fn(),
+            register: jest.fn(),
+            logout: jest.fn(),
+            getToken: jest.fn(() => 'fake-token'),
+        });
+
+        renderWithRouter(<UploadPage />);
+        const userElements = screen.getAllByText('john');
+        expect(userElements.length).toBeGreaterThanOrEqual(2);
+        expect(screen.getByText(/1 GB limit/)).toBeInTheDocument();
+        expect(screen.queryByText('Login')).not.toBeInTheDocument();
+    });
+
+    test('rejects upload exceeding guest 50 MB limit', async () => {
+        mockUseAuth.mockReturnValue({
+            user: null, loading: false,
+            login: jest.fn(), register: jest.fn(), logout: jest.fn(),
+            getToken: jest.fn(() => null),
+        });
+
+        renderWithRouter(<UploadPage />);
+        const bigFile = new File(['x'], 'huge.bin', { type: 'application/octet-stream' });
+        Object.defineProperty(bigFile, 'size', { value: 51 * 1024 * 1024 });
+        await userEvent.upload(document.querySelector('input[type="file"]'), bigFile);
+        fireEvent.click(screen.getByRole('button', { name: /Upload 1 file/i }));
+
+        await waitFor(() => {
+            expect(screen.getByText(/exceeds the 50 MB upload limit/)).toBeInTheDocument();
+        });
+    });
+
+    test('logout button calls logout', () => {
+        const mockLogout = jest.fn();
+        mockUseAuth.mockReturnValue({
+            user: { id: 'u1', username: 'john', maxUploadSize: 1073741824 },
+            loading: false,
+            login: jest.fn(), register: jest.fn(), logout: mockLogout,
+            getToken: jest.fn(() => 'fake-token'),
+        });
+
+        renderWithRouter(<UploadPage />);
+        fireEvent.click(screen.getByTitle('Logout'));
+        expect(mockLogout).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -695,12 +781,17 @@ describe('Network Errors', () => {
     });
 
     test('admin login shows network error', async () => {
-        api.adminLogin.mockRejectedValue(new Error('Network error — server may be unavailable'));
-        renderWithRouter(<AdminLoginPage />);
+        const mockLogin = jest.fn().mockRejectedValue(new Error('Network error — server may be unavailable'));
+        mockUseAuth.mockReturnValue({
+            user: null, loading: false,
+            login: mockLogin, register: jest.fn(), logout: jest.fn(),
+            getToken: jest.fn(() => null),
+        });
 
-        fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin' } });
-        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pass' } });
-        fireEvent.click(screen.getByRole('button', { name: /Login/i }));
+        renderWithRouter(<LoginPage />, { route: '/login' });
+        fireEvent.change(screen.getByPlaceholderText('Username'), { target: { value: 'admin' } });
+        fireEvent.change(screen.getByPlaceholderText('Password'), { target: { value: 'pass' } });
+        fireEvent.click(screen.getByText('Sign In'));
 
         await waitFor(() => {
             expect(screen.getByText(/Network error/)).toBeInTheDocument();
@@ -807,41 +898,6 @@ describe('DownloadPage - Password Protected', () => {
     });
 });
 
-describe('AdminLoginPage', () => {
-    test('renders login form', () => {
-        renderWithRouter(<AdminLoginPage />);
-        expect(screen.getByText('Admin Login')).toBeInTheDocument();
-        expect(screen.getByLabelText('Username')).toBeInTheDocument();
-        expect(screen.getByLabelText('Password')).toBeInTheDocument();
-    });
-
-    test('shows error on failed login', async () => {
-        api.adminLogin.mockRejectedValue(new Error('Invalid credentials'));
-        renderWithRouter(<AdminLoginPage />);
-
-        fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin' } });
-        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong' } });
-        fireEvent.click(screen.getByRole('button', { name: /Login/i }));
-
-        await waitFor(() => {
-            expect(screen.getByText('Invalid credentials')).toBeInTheDocument();
-        });
-    });
-
-    test('submits valid login', async () => {
-        api.adminLogin.mockResolvedValue({ success: true });
-        renderWithRouter(<AdminLoginPage />);
-
-        fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin' } });
-        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pass' } });
-        fireEvent.click(screen.getByRole('button', { name: /Login/i }));
-
-        await waitFor(() => {
-            expect(api.adminLogin).toHaveBeenCalledWith('admin', 'pass');
-        });
-    });
-});
-
 describe('AdminPage', () => {
     test('redirects to login when not authenticated', async () => {
         api.adminCheck.mockRejectedValue(new Error('Unauthorized'));
@@ -889,6 +945,248 @@ describe('AdminPage', () => {
         fireEvent.click(screen.getByText('Logout'));
         await waitFor(() => {
             expect(api.adminLogout).toHaveBeenCalled();
+        });
+    });
+
+    test('settings tab shows tiered upload size and retention fields', async () => {
+        api.adminCheck.mockResolvedValue({ isAdmin: true });
+        api.adminStats.mockResolvedValue({ totalUploads: 0, activeUploads: 0, expiredUploads: 0, storageUsed: 0, totalDownloads: 0 });
+        api.adminUploads.mockResolvedValue({ uploads: [], total: 0 });
+        api.adminGetSettings.mockResolvedValue({
+            guest_max_upload_size: '52428800',
+            user_max_upload_size: '1073741824',
+            guest_max_retention: 'permanent',
+            user_max_retention: 'permanent',
+            max_single_file_size: '1073741824',
+            max_total_upload_size: '5368709120',
+            cleanup_interval_minutes: '60',
+        });
+
+        renderWithRouter(<AdminPage />, { route: '/admin' });
+        await waitFor(() => {
+            expect(screen.getByText('Admin Panel')).toBeInTheDocument();
+        });
+
+        // Switch to settings tab
+        fireEvent.click(screen.getByText('Settings'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Guest Max Upload Size')).toBeInTheDocument();
+            expect(screen.getByText('User Max Upload Size')).toBeInTheDocument();
+            expect(screen.getByText('Guest Max Retention')).toBeInTheDocument();
+            expect(screen.getByText('User Max Retention')).toBeInTheDocument();
+        });
+    });
+
+    test('guest upload size has MB/GB unit dropdown', async () => {
+        api.adminCheck.mockResolvedValue({ isAdmin: true });
+        api.adminStats.mockResolvedValue({ totalUploads: 0, activeUploads: 0, expiredUploads: 0, storageUsed: 0, totalDownloads: 0 });
+        api.adminUploads.mockResolvedValue({ uploads: [], total: 0 });
+        api.adminGetSettings.mockResolvedValue({
+            guest_max_upload_size: '52428800',
+            user_max_upload_size: '1073741824',
+            guest_max_retention: 'permanent',
+            user_max_retention: 'permanent',
+        });
+
+        renderWithRouter(<AdminPage />, { route: '/admin' });
+        await waitFor(() => expect(screen.getByText('Admin Panel')).toBeInTheDocument());
+        fireEvent.click(screen.getByText('Settings'));
+
+        await waitFor(() => {
+            // Two MB/GB selects (guest + user)
+            const unitSelects = document.querySelectorAll('select[name="guest_size_unit"], select[name="user_size_unit"]');
+            expect(unitSelects.length).toBe(2);
+            for (const select of unitSelects) {
+                expect(select.querySelector('option[value="MB"]')).toBeInTheDocument();
+                expect(select.querySelector('option[value="GB"]')).toBeInTheDocument();
+            }
+        });
+    });
+
+    test('guest and user retention are dropdown selects', async () => {
+        api.adminCheck.mockResolvedValue({ isAdmin: true });
+        api.adminStats.mockResolvedValue({ totalUploads: 0, activeUploads: 0, expiredUploads: 0, storageUsed: 0, totalDownloads: 0 });
+        api.adminUploads.mockResolvedValue({ uploads: [], total: 0 });
+        api.adminGetSettings.mockResolvedValue({
+            guest_max_upload_size: '52428800',
+            user_max_upload_size: '1073741824',
+            guest_max_retention: 'days',
+            user_max_retention: 'weeks',
+        });
+
+        renderWithRouter(<AdminPage />, { route: '/admin' });
+        await waitFor(() => expect(screen.getByText('Admin Panel')).toBeInTheDocument());
+        fireEvent.click(screen.getByText('Settings'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Guest Max Retention')).toBeInTheDocument();
+        });
+
+        // Guest retention should default to 'days'
+        const selects = document.querySelectorAll('select');
+        const retentionSelects = Array.from(selects).filter(s =>
+            s.querySelector('option[value="one_download"]')
+        );
+        expect(retentionSelects.length).toBe(2); // guest + user
+    });
+
+    test('can save tiered settings', async () => {
+        api.adminCheck.mockResolvedValue({ isAdmin: true });
+        api.adminStats.mockResolvedValue({ totalUploads: 0, activeUploads: 0, expiredUploads: 0, storageUsed: 0, totalDownloads: 0 });
+        api.adminUploads.mockResolvedValue({ uploads: [], total: 0 });
+        api.adminGetSettings.mockResolvedValue({
+            guest_max_upload_size: '52428800',
+            user_max_upload_size: '1073741824',
+            guest_max_retention: 'permanent',
+            user_max_retention: 'permanent',
+        });
+        api.adminUpdateSettings.mockResolvedValue({ success: true });
+
+        renderWithRouter(<AdminPage />, { route: '/admin' });
+        await waitFor(() => expect(screen.getByText('Admin Panel')).toBeInTheDocument());
+        fireEvent.click(screen.getByText('Settings'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Guest Max Retention')).toBeInTheDocument();
+        });
+
+        // Submit the form directly
+        const form = document.querySelector('form');
+        fireEvent.submit(form);
+
+        await waitFor(() => {
+            expect(api.adminUpdateSettings).toHaveBeenCalled();
+        });
+
+        // Verify the call includes tiered keys
+        const callArgs = api.adminUpdateSettings.mock.calls[0][0];
+        expect(callArgs).toHaveProperty('guest_max_upload_size');
+        expect(callArgs).toHaveProperty('user_max_upload_size');
+        expect(callArgs).toHaveProperty('guest_max_retention');
+        expect(callArgs).toHaveProperty('user_max_retention');
+    });
+});
+
+describe('LoginPage', () => {
+    test('renders login form', () => {
+        renderWithRouter(<LoginPage />, { route: '/login' });
+        expect(screen.getByText('Login')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('Username')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('Password')).toBeInTheDocument();
+        expect(screen.getByText('Sign In')).toBeInTheDocument();
+    });
+
+    test('shows link to register page', () => {
+        renderWithRouter(<LoginPage />, { route: '/login' });
+        expect(screen.getByText('Register')).toBeInTheDocument();
+    });
+
+    test('shows error on failed login', async () => {
+        const mockLogin = jest.fn().mockRejectedValue(new Error('Invalid username or password'));
+        mockUseAuth.mockReturnValue({
+            user: null, loading: false,
+            login: mockLogin, register: jest.fn(), logout: jest.fn(),
+            getToken: jest.fn(() => null),
+        });
+
+        renderWithRouter(<LoginPage />, { route: '/login' });
+        fireEvent.change(screen.getByPlaceholderText('Username'), { target: { value: 'u' } });
+        fireEvent.change(screen.getByPlaceholderText('Password'), { target: { value: 'p' } });
+        fireEvent.click(screen.getByText('Sign In'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Invalid username or password')).toBeInTheDocument();
+        });
+    });
+
+    test('navigates home on successful login', async () => {
+        const mockLogin = jest.fn().mockResolvedValue({ token: 'tok', user: { id: '1', username: 'u' } });
+        mockUseAuth.mockReturnValue({
+            user: null, loading: false,
+            login: mockLogin, register: jest.fn(), logout: jest.fn(),
+            getToken: jest.fn(() => null),
+        });
+
+        renderWithRouter(<LoginPage />, { route: '/login' });
+        fireEvent.change(screen.getByPlaceholderText('Username'), { target: { value: 'u' } });
+        fireEvent.change(screen.getByPlaceholderText('Password'), { target: { value: 'pass123' } });
+        fireEvent.click(screen.getByText('Sign In'));
+
+        await waitFor(() => {
+            expect(mockNavigate).toHaveBeenCalledWith('/');
+        });
+    });
+
+    test('navigates to /admin on admin login', async () => {
+        const mockLogin = jest.fn().mockResolvedValue({
+            token: 'tok',
+            user: { id: 'admin', username: 'admin', isAdmin: true },
+        });
+        mockUseAuth.mockReturnValue({
+            user: null, loading: false,
+            login: mockLogin, register: jest.fn(), logout: jest.fn(),
+            getToken: jest.fn(() => null),
+        });
+
+        renderWithRouter(<LoginPage />, { route: '/login' });
+        fireEvent.change(screen.getByPlaceholderText('Username'), { target: { value: 'admin' } });
+        fireEvent.change(screen.getByPlaceholderText('Password'), { target: { value: 'adminpass' } });
+        fireEvent.click(screen.getByText('Sign In'));
+
+        await waitFor(() => {
+            expect(mockNavigate).toHaveBeenCalledWith('/admin');
+        });
+    });
+});
+
+describe('RegisterPage', () => {
+    test('renders register form', () => {
+        renderWithRouter(<RegisterPage />, { route: '/register' });
+        expect(screen.getByText('Register')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/Username/)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/Password/)).toBeInTheDocument();
+        expect(screen.getByText('Create Account')).toBeInTheDocument();
+    });
+
+    test('shows link to login page', () => {
+        renderWithRouter(<RegisterPage />, { route: '/register' });
+        expect(screen.getByText('Login')).toBeInTheDocument();
+    });
+
+    test('shows error on duplicate username', async () => {
+        const mockRegister = jest.fn().mockRejectedValue(new Error('Username already taken'));
+        mockUseAuth.mockReturnValue({
+            user: null, loading: false,
+            login: jest.fn(), register: mockRegister, logout: jest.fn(),
+            getToken: jest.fn(() => null),
+        });
+
+        renderWithRouter(<RegisterPage />, { route: '/register' });
+        fireEvent.change(screen.getByPlaceholderText(/Username/), { target: { value: 'taken' } });
+        fireEvent.change(screen.getByPlaceholderText(/Password/), { target: { value: 'pass123' } });
+        fireEvent.click(screen.getByText('Create Account'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Username already taken')).toBeInTheDocument();
+        });
+    });
+
+    test('navigates home on successful registration', async () => {
+        const mockRegister = jest.fn().mockResolvedValue({ token: 'tok', user: { id: '1', username: 'new' } });
+        mockUseAuth.mockReturnValue({
+            user: null, loading: false,
+            login: jest.fn(), register: mockRegister, logout: jest.fn(),
+            getToken: jest.fn(() => null),
+        });
+
+        renderWithRouter(<RegisterPage />, { route: '/register' });
+        fireEvent.change(screen.getByPlaceholderText(/Username/), { target: { value: 'newuser' } });
+        fireEvent.change(screen.getByPlaceholderText(/Password/), { target: { value: 'pass123' } });
+        fireEvent.click(screen.getByText('Create Account'));
+
+        await waitFor(() => {
+            expect(mockNavigate).toHaveBeenCalledWith('/');
         });
     });
 });

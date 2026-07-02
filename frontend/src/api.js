@@ -1,10 +1,15 @@
 const BASE = '/api';
 
 async function request(url, options = {}) {
+    const token = localStorage.getItem('shareme_auth_token');
+    const headers = { 'Content-Type': 'application/json', ...options.headers };
+    if (token) {
+        headers['Authorization'] = 'Bearer ' + token;
+    }
     let res;
     try {
         res = await fetch(BASE + url, {
-            headers: { 'Content-Type': 'application/json', ...options.headers },
+            headers,
             ...options,
         });
     } catch {
@@ -27,6 +32,12 @@ export const api = {
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             xhr.open('POST', BASE + '/upload');
+
+            // Attach auth token if available
+            const token = localStorage.getItem('shareme_auth_token');
+            if (token) {
+                xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+            }
 
             xhr.upload.addEventListener('progress', (e) => {
                 if (e.lengthComputable && onProgress) {
@@ -120,6 +131,25 @@ export const api = {
         return request('/admin/settings');
     },
 
+
+    // Auth
+    login(username, password) {
+        return request('/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password }),
+        });
+    },
+
+    register(username, password) {
+        return request('/auth/register', {
+            method: 'POST',
+            body: JSON.stringify({ username, password }),
+        });
+    },
+
+    getMe() {
+        return request('/auth/me');
+    },
     adminUpdateSettings(settings) {
         return request('/admin/settings', {
             method: 'PUT',

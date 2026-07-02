@@ -5,14 +5,91 @@ import path from 'path';
 import fs from 'fs';
 import { getDb, initDb } from '../db.js';
 import { upload } from '../middleware/upload.js';
+import { userAuth } from '../middleware/auth.js';
 import { generateUniqueId, generateDeleteToken, validateAlias } from '../utils/id.js';
 import { validateUploadBody, sanitizeFilename } from '../utils/validation.js';
 import { generateQrDataUrl } from '../utils/qr.js';
 
 const router = Router();
 
+// Size limits (fallback defaults, overridden by DB settings)
+const DEFAULT_GUEST_MAX_UPLOAD = 50 * 1024 * 1024; // 50 MB
+const DEFAULT_USER_MAX_UPLOAD = 1024 * 1024 * 1024; // 1 GB
+
+// Retention ranking for comparison
+const RETENTION_RANK = { one_download: 1, days: 2, weeks: 3, months: 4, years: 5, permanent: 6 };
+
+// Multipliers to convert retention types to days for value comparison
+const RETENTION_DAYS = { days: 1, weeks: 7, months: 30, years: 365 };
+
+function parseRetentionSetting(raw) {
+    if (!raw || raw === 'permanent' || raw === 'one_download') {
+        return { type: raw || 'permanent', value: null };
+    }
+    const match = raw.match(/^(\d+)(days|weeks|months|years)$/);
+    if (match) {
+        return { type: match[2], value: parseInt(match[1], 10) };
+    }
+    // Fallback for old format (bare type name)
+    if (RETENTION_RANK[raw]) {
+        return { type: raw, value: null };
+    }
+    return { type: 'permanent', value: null };
+}
+
+// Returns true if the requested retention is within the max allowed
+function isRetentionAllowed(requestedType, requestedValue, maxSettingRaw) {
+    const max = parseRetentionSetting(maxSettingRaw);
+    const requestedRank = RETENTION_RANK[requestedType] || 0;
+    const maxRank = RETENTION_RANK[max.type] || 6;
+
+    // If max is permanent, everything is allowed
+    if (max.type === 'permanent') return true;
+
+    // If requested rank is higher, deny
+    if (requestedRank > maxRank) return false;
+
+    // If same type and max has a value, compare values
+    if (requestedType === max.type && max.value !== null && requestedValue !== null) {
+        return requestedValue <= max.value;
+    }
+
+    return true;
+}
+
+async function getSettings(db) {
+    const result = await db.execute('SELECT key, value FROM settings');
+    const settings = {};
+    for (const row of result.rows) {
+        settings[row.key] = row.value;
+    }
+    return settings;
+}
+
+// Middleware to check upload size before multer processes files
+async function uploadSizeGuard(req, res, next) {
+    try {
+        const db = getDb();
+        const settings = await getSettings(db);
+        const guestMax = parseInt(settings.guest_max_upload_size || DEFAULT_GUEST_MAX_UPLOAD, 10);
+        const userMax = parseInt(settings.user_max_upload_size || DEFAULT_USER_MAX_UPLOAD, 10);
+        const maxSize = req.user ? userMax : guestMax;
+        const contentLength = parseInt(req.headers['content-length'], 10);
+
+        if (contentLength && contentLength > maxSize) {
+            const limitMB = (maxSize / (1024 * 1024)).toFixed(0);
+            return res.status(413).json({
+                error: `Upload too large. ${req.user ? 'User' : 'Guest'} limit is ${limitMB} MB per upload.`,
+            });
+        }
+        next();
+    } catch (e) {
+        next(e);
+    }
+}
+
 // POST /api/upload
-router.post('/', upload.array('files', 20), async (req, res) => {
+router.post('/', userAuth, uploadSizeGuard, upload.array('files', 20), async (req, res) => {
     try {
         const db = getDb();
 
@@ -25,6 +102,37 @@ router.post('/', upload.array('files', 20), async (req, res) => {
         // Validate files
         if (!req.files || req.files.length === 0) {
             return res.status(400).json({ error: 'At least one file is required' });
+        }
+
+        // Load settings from DB for size and retention limits
+        const settings = await getSettings(db);
+        const guestMaxSize = parseInt(settings.guest_max_upload_size || DEFAULT_GUEST_MAX_UPLOAD, 10);
+        const userMaxSize = parseInt(settings.user_max_upload_size || DEFAULT_USER_MAX_UPLOAD, 10);
+        const maxSize = req.user ? userMaxSize : guestMaxSize;
+        const guestMaxRetention = settings.guest_max_retention || 'permanent';
+        const userMaxRetention = settings.user_max_retention || 'permanent';
+        const maxRetention = req.user ? userMaxRetention : guestMaxRetention;
+
+        // Validate retention against admin limits
+        const retentionType = req.body.retention_type;
+        const retentionVal = parseInt(req.body.retention_value, 10) || null;
+        if (!isRetentionAllowed(retentionType, retentionVal, maxRetention)) {
+            return res.status(400).json({
+                error: `Retention type "${retentionType}" exceeds the ${req.user ? 'user' : 'guest'} maximum.`,
+            });
+        }
+
+        // Check total upload size against user tier
+        const totalSize = req.files.reduce((sum, f) => sum + f.size, 0);
+        if (totalSize > maxSize) {
+            // Delete uploaded files since they exceed the limit
+            for (const file of req.files) {
+                try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+            }
+            const limitMB = (maxSize / (1024 * 1024)).toFixed(0);
+            return res.status(413).json({
+                error: `Total upload size exceeds ${req.user ? 'user' : 'guest'} limit of ${limitMB} MB.`,
+            });
         }
 
         // Validate alias if provided
@@ -46,7 +154,6 @@ router.post('/', upload.array('files', 20), async (req, res) => {
 
         // Calculate expiration
         let expiresAt = null;
-        const retentionType = req.body.retention_type;
         const retentionValue = parseInt(req.body.retention_value, 10);
 
         if (['days', 'weeks', 'months', 'years'].includes(retentionType)) {
@@ -70,9 +177,9 @@ router.post('/', upload.array('files', 20), async (req, res) => {
 
         // Insert upload record
         await db.execute({
-            sql: `INSERT INTO uploads (id, alias, retention_type, retention_value, password_hash, delete_token_hash, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            args: [uploadId, req.body.alias || null, retentionType, retentionValue || null, passwordHash, deleteTokenHash, expiresAt],
+            sql: `INSERT INTO uploads (id, alias, retention_type, retention_value, password_hash, delete_token_hash, expires_at, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [uploadId, req.body.alias || null, retentionType, retentionValue || null, passwordHash, deleteTokenHash, expiresAt, req.user?.id || null],
         });
 
         // Insert file records

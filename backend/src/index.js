@@ -11,12 +11,13 @@ import { initDb } from './db.js';
 import uploadRoutes from './routes/upload.js';
 import downloadRoutes from './routes/download.js';
 import adminRoutes from './routes/admin.js';
+import authRoutes from './routes/auth.js';
 import { startCleanupJob } from './utils/cleanup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT, 10) || 3000;
 // Auto-generate a random 128-char hex string on startup
 const SESSION_SECRET = crypto.randomBytes(64).toString('hex');
 
@@ -40,6 +41,7 @@ app.use(session({
 app.use('/api/upload', uploadRoutes);
 app.use('/api/file', downloadRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/auth', authRoutes);
 
 // Serve frontend static files
 // Docker: /app/src/../frontend/dist → /app/frontend/dist

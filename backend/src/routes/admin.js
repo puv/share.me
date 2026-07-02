@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { adminAuth } from '../middleware/auth.js';
+import { adminAuth, userAuth } from '../middleware/auth.js';
 import { getDb } from '../db.js';
 import path from 'path';
 import fs from 'fs';
 
 const router = Router();
 
-// POST /api/admin/login
+// POST /api/admin/login — kept for backward compat, delegates to auth/login
 router.post('/login', (req, res) => {
     const { username, password } = req.body;
     const adminUser = process.env.ADMIN_USERNAME;
@@ -30,9 +30,10 @@ router.post('/logout', (req, res) => {
     res.json({ success: true });
 });
 
-// GET /api/admin/check
-router.get('/check', (req, res) => {
-    res.json({ isAdmin: !!req.session?.isAdmin });
+// GET /api/admin/check — accepts session cookie OR JWT Bearer token
+router.get('/check', userAuth, (req, res) => {
+    const isAdmin = !!(req.session?.isAdmin || (req.user && req.user.isAdmin));
+    res.json({ isAdmin });
 });
 
 // GET /api/admin/stats
@@ -199,6 +200,10 @@ router.put('/settings', adminAuth, async (req, res) => {
             'max_total_upload_size',
             'max_retention_allowed',
             'cleanup_interval_minutes',
+            'guest_max_upload_size',
+            'user_max_upload_size',
+            'guest_max_retention',
+            'user_max_retention',
         ];
 
         for (const [key, value] of Object.entries(req.body)) {

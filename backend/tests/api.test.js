@@ -501,17 +501,62 @@ describe('Admin API', () => {
         expect(res.body.max_total_upload_size).toBeDefined();
     });
 
-    test('PUT /api/admin/settings - updates settings', async () => {
+    test('GET /api/admin/settings - returns new tiered settings keys', async () => {
+        const res = await request(app)
+            .get('/api/admin/settings')
+            .set('Cookie', getCookies());
+        expect(res.status).toBe(200);
+        expect(res.body.guest_max_upload_size).toBeDefined();
+        expect(res.body.user_max_upload_size).toBeDefined();
+        expect(res.body.guest_max_retention).toBeDefined();
+        expect(res.body.user_max_retention).toBeDefined();
+    });
+
+    test('PUT /api/admin/settings - updates guest and user tier settings', async () => {
         const res = await request(app)
             .put('/api/admin/settings')
             .set('Cookie', getCookies())
-            .send({ cleanup_interval_minutes: '120' });
+            .send({
+                guest_max_upload_size: '104857600', // 100 MB
+                user_max_upload_size: '2147483648', // 2 GB
+                guest_max_retention: '7days',
+                user_max_retention: 'permanent',
+            });
         expect(res.status).toBe(200);
 
         const getRes = await request(app)
             .get('/api/admin/settings')
             .set('Cookie', getCookies());
-        expect(getRes.body.cleanup_interval_minutes).toBe('120');
+        expect(getRes.body.guest_max_upload_size).toBe('104857600');
+        expect(getRes.body.user_max_upload_size).toBe('2147483648');
+        expect(getRes.body.guest_max_retention).toBe('7days');
+        expect(getRes.body.user_max_retention).toBe('permanent');
+
+        // Restore defaults so other tests aren't affected
+        await request(app)
+            .put('/api/admin/settings')
+            .set('Cookie', getCookies())
+            .send({
+                guest_max_upload_size: '52428800',
+                user_max_upload_size: '1073741824',
+                guest_max_retention: 'permanent',
+            });
+    });
+
+    test('PUT /api/admin/settings - ignores unknown keys', async () => {
+        const res = await request(app)
+            .put('/api/admin/settings')
+            .set('Cookie', getCookies())
+            .send({ evil_key: 'hacked', guest_max_upload_size: '52428800' });
+        expect(res.status).toBe(200);
+
+        const getRes = await request(app)
+            .get('/api/admin/settings')
+            .set('Cookie', getCookies());
+        // evil_key should NOT exist
+        expect(getRes.body.evil_key).toBeUndefined();
+        // guest_max_upload_size should be updated
+        expect(getRes.body.guest_max_upload_size).toBe('52428800');
     });
 });
 
@@ -542,6 +587,101 @@ describe('Admin Delete Upload', () => {
 
         const getRes = await request(app).get(`/api/upload/${uploadId}`);
         expect(getRes.status).toBe(404);
+    });
+});
+
+describe('Tiered Limits Enforcement', () => {
+    beforeAll(async () => {
+        // Login as admin to change settings
+        const loginRes = await request(app)
+            .post('/api/admin/login')
+            .send({ username: 'admin', password: 'adminpass' });
+        extractCookies(loginRes);
+    });
+
+    test('guest upload is rejected when exceeding admin-set guest limit', async () => {
+        // Set guest limit to 100 KB
+        await request(app)
+            .put('/api/admin/settings')
+            .set('Cookie', getCookies())
+            .send({ guest_max_upload_size: '102400' });
+
+        // Try to upload 200 KB as guest
+        const bigBuffer = Buffer.alloc(200 * 1024, 'x');
+        const res = await request(app)
+            .post('/api/upload')
+            .attach('files', bigBuffer, 'big.bin')
+            .field('retention_type', 'permanent');
+        expect(res.status).toBe(413);
+        expect(res.body.error).toMatch(/Guest limit/);
+
+        // Restore default
+        await request(app)
+            .put('/api/admin/settings')
+            .set('Cookie', getCookies())
+            .send({ guest_max_upload_size: '52428800' });
+    });
+
+    test('guest upload succeeds under admin-set guest limit', async () => {
+        // Set guest limit to 100 KB
+        await request(app)
+            .put('/api/admin/settings')
+            .set('Cookie', getCookies())
+            .send({ guest_max_upload_size: '102400' });
+
+        const res = await request(app)
+            .post('/api/upload')
+            .attach('files', Buffer.from('tiny'), 'tiny.txt')
+            .field('retention_type', 'permanent');
+        expect(res.status).toBe(201);
+
+        // Restore
+        await request(app)
+            .put('/api/admin/settings')
+            .set('Cookie', getCookies())
+            .send({ guest_max_upload_size: '52428800' });
+    });
+
+    test('guest upload rejected when retention exceeds admin-set max', async () => {
+        // Set guest max retention to 'one_download' (most restrictive)
+        await request(app)
+            .put('/api/admin/settings')
+            .set('Cookie', getCookies())
+            .send({ guest_max_retention: 'one_download' });
+
+        // Try permanent retention as guest
+        const res = await request(app)
+            .post('/api/upload')
+            .attach('files', Buffer.from('test'), 'test.txt')
+            .field('retention_type', 'permanent');
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/exceeds/);
+
+        // Restore
+        await request(app)
+            .put('/api/admin/settings')
+            .set('Cookie', getCookies())
+            .send({ guest_max_retention: 'permanent' });
+    });
+
+    test('guest upload succeeds with allowed retention type', async () => {
+        await request(app)
+            .put('/api/admin/settings')
+            .set('Cookie', getCookies())
+            .send({ guest_max_retention: '30days' });
+
+        const res = await request(app)
+            .post('/api/upload')
+            .attach('files', Buffer.from('test'), 'test.txt')
+            .field('retention_type', 'days')
+            .field('retention_value', '7');
+        expect(res.status).toBe(201);
+
+        // Restore
+        await request(app)
+            .put('/api/admin/settings')
+            .set('Cookie', getCookies())
+            .send({ guest_max_retention: 'permanent' });
     });
 });
 

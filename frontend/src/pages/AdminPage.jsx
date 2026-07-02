@@ -50,11 +50,11 @@ export default function AdminPage() {
                 loadDashboard();
             } else {
                 setIsAdmin(false);
-                navigate('/admin/login');
+                navigate('/login');
             }
         } catch (e) {
             setIsAdmin(false);
-            navigate('/admin/login');
+            navigate('/login');
         }
     }
 
@@ -84,7 +84,7 @@ export default function AdminPage() {
 
     async function handleLogout() {
         await api.adminLogout();
-        navigate('/admin/login');
+        navigate('/login');
     }
 
     async function handleDelete(uploadId) {
@@ -118,33 +118,33 @@ export default function AdminPage() {
     }
 
     if (isAdmin === null) {
-        return <div className="loading">Checking access...</div>;
+        return <div className="admin-layout"><div className="admin-loading">Checking access...</div></div>;
     }
 
     return (
         <div className="admin-layout">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div className="admin-header">
                 <h1>Admin Panel</h1>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div className="admin-tabs">
                     <button
-                        className={`btn btn-sm ${viewMode === 'dashboard' ? 'btn-primary' : 'btn-secondary'}`}
+                        className={`admin-tab ${viewMode === 'dashboard' ? 'active' : ''}`}
                         onClick={() => switchView('dashboard')}
                     >
                         Dashboard
                     </button>
                     <button
-                        className={`btn btn-sm ${viewMode === 'uploads' ? 'btn-primary' : 'btn-secondary'}`}
+                        className={`admin-tab ${viewMode === 'uploads' ? 'active' : ''}`}
                         onClick={() => switchView('uploads')}
                     >
                         Uploads
                     </button>
                     <button
-                        className={`btn btn-sm ${viewMode === 'settings' ? 'btn-primary' : 'btn-secondary'}`}
+                        className={`admin-tab ${viewMode === 'settings' ? 'active' : ''}`}
                         onClick={() => switchView('settings')}
                     >
                         Settings
                     </button>
-                    <button className="btn btn-sm btn-secondary" onClick={handleLogout}>
+                    <button className="admin-tab" onClick={handleLogout}>
                         <LogOut size={14} /> Logout
                     </button>
                 </div>
@@ -178,7 +178,7 @@ export default function AdminPage() {
                     </div>
 
                     <div className="card">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <div className="admin-header">
                             <h3>Recent Uploads</h3>
                             <button className="btn btn-sm btn-secondary" onClick={loadDashboard}>
                                 <RefreshCw size={14} /> Refresh
@@ -287,25 +287,201 @@ export default function AdminPage() {
                 <div className="card">
                     <h3>Settings</h3>
                     {settingsSaved && <div className="alert alert-success">Settings saved</div>}
-                    <form onSubmit={handleSaveSettings}>
+                    <form className="admin-settings-form" onSubmit={handleSaveSettings}>
+                        <div className="admin-section-title">Upload Size Limits</div>
+
                         <div className="form-group">
-                            <label className="form-label">Max Single File Size (bytes)</label>
-                            <input
-                                type="number"
-                                className="form-input"
-                                value={settings.max_single_file_size || ''}
-                                onChange={(e) => setSettings({ ...settings, max_single_file_size: e.target.value })}
-                            />
+                            <label className="form-label">Guest Max Upload Size</label>
+                            <div className="form-row">
+                                <input
+                                    type="number"
+                                    className="form-input"
+                                    min="1"
+                                    value={(() => {
+                                        const bytes = parseInt(settings.guest_max_upload_size || '52428800', 10);
+                                        return bytes >= 1e9 ? Math.round(bytes / 1e9) : Math.round(bytes / 1e6);
+                                    })()}
+                                    onChange={(e) => {
+                                        const num = parseInt(e.target.value, 10) || 0;
+                                        const unit = document.querySelector('[name="guest_size_unit"]')?.value;
+                                        const bytes = unit === 'GB' ? num * 1e9 : num * 1e6;
+                                        setSettings({ ...settings, guest_max_upload_size: String(bytes) });
+                                    }}
+                                />
+                                <select
+                                    name="guest_size_unit"
+                                    className="form-select"
+                                    style={{ maxWidth: '80px' }}
+                                    defaultValue={parseInt(settings.guest_max_upload_size || '52428800', 10) >= 1e9 ? 'GB' : 'MB'}
+                                    onChange={(e) => {
+                                        const input = e.target.parentElement.querySelector('input');
+                                        const num = parseInt(input.value, 10) || 0;
+                                        const bytes = e.target.value === 'GB' ? num * 1e9 : num * 1e6;
+                                        setSettings({ ...settings, guest_max_upload_size: String(bytes) });
+                                    }}
+                                >
+                                    <option value="MB">MB</option>
+                                    <option value="GB">GB</option>
+                                </select>
+                            </div>
                         </div>
+
                         <div className="form-group">
-                            <label className="form-label">Max Total Upload Size (bytes)</label>
-                            <input
-                                type="number"
-                                className="form-input"
-                                value={settings.max_total_upload_size || ''}
-                                onChange={(e) => setSettings({ ...settings, max_total_upload_size: e.target.value })}
-                            />
+                            <label className="form-label">User Max Upload Size</label>
+                            <div className="form-row">
+                                <input
+                                    type="number"
+                                    className="form-input"
+                                    min="1"
+                                    value={(() => {
+                                        const bytes = parseInt(settings.user_max_upload_size || '1073741824', 10);
+                                        return bytes >= 1e9 ? Math.round(bytes / 1e9) : Math.round(bytes / 1e6);
+                                    })()}
+                                    onChange={(e) => {
+                                        const num = parseInt(e.target.value, 10) || 0;
+                                        const unit = document.querySelector('[name="user_size_unit"]')?.value;
+                                        const bytes = unit === 'GB' ? num * 1e9 : num * 1e6;
+                                        setSettings({ ...settings, user_max_upload_size: String(bytes) });
+                                    }}
+                                />
+                                <select
+                                    name="user_size_unit"
+                                    className="form-select"
+                                    style={{ maxWidth: '80px' }}
+                                    defaultValue={parseInt(settings.user_max_upload_size || '1073741824', 10) >= 1e9 ? 'GB' : 'MB'}
+                                    onChange={(e) => {
+                                        const input = e.target.parentElement.querySelector('input');
+                                        const num = parseInt(input.value, 10) || 0;
+                                        const bytes = e.target.value === 'GB' ? num * 1e9 : num * 1e6;
+                                        setSettings({ ...settings, user_max_upload_size: String(bytes) });
+                                    }}
+                                >
+                                    <option value="MB">MB</option>
+                                    <option value="GB">GB</option>
+                                </select>
+                            </div>
                         </div>
+
+                        <div className="admin-section-title">Retention Limits</div>
+
+                        <div className="form-group">
+                            <label className="form-label">Guest Max Retention</label>
+                            <div className="form-row">
+                                <input
+                                    type="number"
+                                    className="form-input"
+                                    min="1"
+                                    placeholder="Value"
+                                    value={(() => {
+                                        const raw = settings.guest_max_retention || 'permanent';
+                                        if (raw === 'permanent' || raw === 'one_download') return '';
+                                        const match = raw.match(/^(\d+)/);
+                                        return match ? match[1] : '';
+                                    })()}
+                                    disabled={(() => {
+                                        const raw = settings.guest_max_retention || 'permanent';
+                                        return raw === 'permanent' || raw === 'one_download';
+                                    })()}
+                                    onChange={(e) => {
+                                        const num = e.target.value;
+                                        const unit = document.querySelector('[name="guest_retention_unit"]')?.value || 'days';
+                                        if (unit === 'permanent' || unit === 'one_download') {
+                                            setSettings({ ...settings, guest_max_retention: unit });
+                                        } else {
+                                            setSettings({ ...settings, guest_max_retention: num + unit });
+                                        }
+                                    }}
+                                />
+                                <select
+                                    name="guest_retention_unit"
+                                    className="form-select"
+                                    value={(() => {
+                                        const raw = settings.guest_max_retention || 'permanent';
+                                        if (raw === 'permanent' || raw === 'one_download') return raw;
+                                        const match = raw.match(/\d+(.+)/);
+                                        return match ? match[1] : 'days';
+                                    })()}
+                                    onChange={(e) => {
+                                        const unit = e.target.value;
+                                        if (unit === 'permanent' || unit === 'one_download') {
+                                            setSettings({ ...settings, guest_max_retention: unit });
+                                        } else {
+                                            const input = e.target.parentElement.querySelector('input');
+                                            const num = input.value || '7';
+                                            setSettings({ ...settings, guest_max_retention: num + unit });
+                                        }
+                                    }}
+                                >
+                                    <option value="days">Days</option>
+                                    <option value="weeks">Weeks</option>
+                                    <option value="months">Months</option>
+                                    <option value="years">Years</option>
+                                    <option value="one_download">One Download</option>
+                                    <option value="permanent">Permanent</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">User Max Retention</label>
+                            <div className="form-row">
+                                <input
+                                    type="number"
+                                    className="form-input"
+                                    min="1"
+                                    placeholder="Value"
+                                    value={(() => {
+                                        const raw = settings.user_max_retention || 'permanent';
+                                        if (raw === 'permanent' || raw === 'one_download') return '';
+                                        const match = raw.match(/^(\d+)/);
+                                        return match ? match[1] : '';
+                                    })()}
+                                    disabled={(() => {
+                                        const raw = settings.user_max_retention || 'permanent';
+                                        return raw === 'permanent' || raw === 'one_download';
+                                    })()}
+                                    onChange={(e) => {
+                                        const num = e.target.value;
+                                        const unit = document.querySelector('[name="user_retention_unit"]')?.value || 'days';
+                                        if (unit === 'permanent' || unit === 'one_download') {
+                                            setSettings({ ...settings, user_max_retention: unit });
+                                        } else {
+                                            setSettings({ ...settings, user_max_retention: num + unit });
+                                        }
+                                    }}
+                                />
+                                <select
+                                    name="user_retention_unit"
+                                    className="form-select"
+                                    value={(() => {
+                                        const raw = settings.user_max_retention || 'permanent';
+                                        if (raw === 'permanent' || raw === 'one_download') return raw;
+                                        const match = raw.match(/\d+(.+)/);
+                                        return match ? match[1] : 'days';
+                                    })()}
+                                    onChange={(e) => {
+                                        const unit = e.target.value;
+                                        if (unit === 'permanent' || unit === 'one_download') {
+                                            setSettings({ ...settings, user_max_retention: unit });
+                                        } else {
+                                            const input = e.target.parentElement.querySelector('input');
+                                            const num = input.value || '7';
+                                            setSettings({ ...settings, user_max_retention: num + unit });
+                                        }
+                                    }}
+                                >
+                                    <option value="days">Days</option>
+                                    <option value="weeks">Weeks</option>
+                                    <option value="months">Months</option>
+                                    <option value="years">Years</option>
+                                    <option value="one_download">One Download</option>
+                                    <option value="permanent">Permanent</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="admin-section-title">General</div>
+
                         <div className="form-group">
                             <label className="form-label">Cleanup Interval (minutes)</label>
                             <input

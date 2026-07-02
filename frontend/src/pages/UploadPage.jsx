@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Upload, X, File as FileIcon } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Upload, X, File as FileIcon, LogOut } from 'lucide-react';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 
 function formatSize(bytes) {
     if (bytes === 0) return '0 B';
@@ -12,6 +13,7 @@ function formatSize(bytes) {
 
 export default function UploadPage() {
     const navigate = useNavigate();
+    const { user, logout } = useAuth();
     const [files, setFiles] = useState([]);
     const [uploading, setUploading] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -20,6 +22,10 @@ export default function UploadPage() {
     const [dragOver, setDragOver] = useState(false);
     const fileInputRef = useRef(null);
     const startTimeRef = useRef(null);
+
+    const guestLimit = 50 * 1024 * 1024; // 50 MB
+    const uploadLimit = user ? (user.maxUploadSize || 1073741824) : guestLimit;
+    const uploadLimitLabel = user ? '1 GB' : '50 MB';
 
     function resetUpload() {
         setUploading(false);
@@ -49,6 +55,11 @@ export default function UploadPage() {
             setError('Please select at least one file');
             return;
         }
+        const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+        if (totalSize > uploadLimit) {
+            setError(`Total file size exceeds the ${uploadLimitLabel} upload limit. ${user ? '' : 'Login or register to unlock 1 GB.'}`);
+            return;
+        }
         setUploading(true);
         setError('');
         setProgress(0);
@@ -75,6 +86,14 @@ export default function UploadPage() {
 
     return (
         <div className="upload-page">
+            {user && (
+                <div className="upload-user-bar">
+                    <span className="upload-user-name">{user.username}</span>
+                    <button className="upload-user-logout" onClick={logout} title="Logout">
+                        <LogOut size={16} />
+                    </button>
+                </div>
+            )}
             <div className="upload-center">
                 <div
                     className={`drop-zone ${dragOver ? 'drag-over' : ''} ${files.length > 0 ? 'has-files' : ''}`}
@@ -87,7 +106,12 @@ export default function UploadPage() {
                     <p className="drop-zone-text">
                         <strong>Click to browse</strong> or drag and drop files here
                     </p>
-                    <p className="drop-zone-sub">No account needed</p>
+                    <p className="drop-zone-sub" onClick={(e) => e.stopPropagation()}>
+                        {user
+                            ? <>Logged in as <strong>{user.username}</strong> — {uploadLimitLabel} limit</>
+                            : <>{uploadLimitLabel} limit — <Link to="/login">Login</Link> or <Link to="/register">Register</Link> for 1 GB</>
+                        }
+                    </p>
                     <input
                         ref={fileInputRef}
                         type="file"
