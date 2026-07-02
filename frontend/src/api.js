@@ -23,20 +23,39 @@ async function request(url, options = {}) {
 }
 
 export const api = {
-    upload(formData) {
-        return fetch(BASE + '/upload', {
-            method: 'POST',
-            body: formData,
-        }).then(async (res) => {
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || data.errors?.join(', ') || 'Upload failed');
-            return data;
-        }).catch((err) => {
-            // Network errors from fetch come through as TypeError
-            if (err instanceof TypeError && err.message === 'Failed to fetch') {
-                throw new Error('Network error — server may be unavailable');
-            }
-            throw err;
+    upload(formData, onProgress) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', BASE + '/upload');
+
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable && onProgress) {
+                    onProgress(e.loaded, e.total);
+                }
+            });
+
+            xhr.addEventListener('load', () => {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    if (xhr.status < 200 || xhr.status >= 300) {
+                        reject(new Error(data.error || data.errors?.join(', ') || 'Upload failed'));
+                    } else {
+                        resolve(data);
+                    }
+                } catch {
+                    reject(new Error('Invalid response from server'));
+                }
+            });
+
+            xhr.addEventListener('error', () => {
+                reject(new Error('Network error — server may be unavailable'));
+            });
+
+            xhr.addEventListener('abort', () => {
+                reject(new Error('Upload cancelled'));
+            });
+
+            xhr.send(formData);
         });
     },
 

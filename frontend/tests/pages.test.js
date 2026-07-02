@@ -140,6 +140,100 @@ describe('UploadPage', () => {
 
         expect(screen.getByText('drag.txt')).toBeInTheDocument();
     });
+
+    test('shows progress bar with percentage during upload', async () => {
+        // Mock upload to call onProgress then never resolve (stay in "uploading" state)
+        api.upload.mockImplementation((_formData, onProgress) => {
+            if (onProgress) onProgress(500000, 1000000); // 50%
+            return new Promise(() => { }); // never settles — stays uploading
+        });
+
+        renderWithRouter(<UploadPage />);
+        const file = new File(['x'.repeat(1000000)], 'big.bin', { type: 'application/octet-stream' });
+        await userEvent.upload(document.querySelector('input[type="file"]'), file);
+        fireEvent.click(screen.getByRole('button', { name: /Upload 1 file/i }));
+
+        await waitFor(() => {
+            expect(screen.getByText('Uploading 50%')).toBeInTheDocument();
+        });
+    });
+
+    test('shows upload speed in MB/s after brief delay', async () => {
+        api.upload.mockImplementation((_formData, onProgress) => {
+            // Simulate progress after 150ms (past the 100ms guard in the component)
+            setTimeout(() => {
+                if (onProgress) onProgress(2000000, 4000000);
+            }, 150);
+            return new Promise(() => { });
+        });
+
+        renderWithRouter(<UploadPage />);
+        const file = new File(['x'.repeat(100)], 'fast.bin', { type: 'application/octet-stream' });
+        await userEvent.upload(document.querySelector('input[type="file"]'), file);
+        fireEvent.click(screen.getByRole('button', { name: /Upload 1 file/i }));
+
+        // Speed appears after the timeout fires (elapsed > 0.1s guard in component)
+        await waitFor(() => {
+            const speedEl = document.querySelector('.upload-progress-speed');
+            expect(speedEl).toBeInTheDocument();
+            expect(speedEl.textContent).toMatch(/\d+\.\d{2} MB\/s/);
+        }, { timeout: 1000 });
+    });
+
+    test('progress bar fill width matches percentage', async () => {
+        api.upload.mockImplementation((_formData, onProgress) => {
+            if (onProgress) onProgress(750, 1000); // 75%
+            return new Promise(() => { });
+        });
+
+        renderWithRouter(<UploadPage />);
+        const file = new File(['x'.repeat(100)], 'pct.bin', { type: 'application/octet-stream' });
+        await userEvent.upload(document.querySelector('input[type="file"]'), file);
+        fireEvent.click(screen.getByRole('button', { name: /Upload 1 file/i }));
+
+        await waitFor(() => {
+            const fill = document.querySelector('.upload-progress-fill');
+            expect(fill).toBeInTheDocument();
+            expect(fill.style.width).toBe('75%');
+        });
+    });
+
+    test('does not show progress bar before upload starts', () => {
+        renderWithRouter(<UploadPage />);
+        expect(document.querySelector('.upload-progress')).not.toBeInTheDocument();
+    });
+
+    test('progress bar disappears and state resets on upload error', async () => {
+        api.upload.mockRejectedValue(new Error('Upload failed: Server error'));
+        renderWithRouter(<UploadPage />);
+
+        const file = new File(['test'], 'fail.txt', { type: 'text/plain' });
+        await userEvent.upload(document.querySelector('input[type="file"]'), file);
+        fireEvent.click(screen.getByRole('button', { name: /Upload 1 file/i }));
+
+        await waitFor(() => {
+            expect(screen.getByText(/Server error/)).toBeInTheDocument();
+        });
+
+        // Progress bar should be gone after error
+        expect(document.querySelector('.upload-progress')).not.toBeInTheDocument();
+        // Upload button should be re-enabled
+        expect(screen.getByRole('button', { name: /Upload 1 file/i })).not.toBeDisabled();
+    });
+
+    test('button shows Uploading... text and is disabled during upload', async () => {
+        api.upload.mockImplementation(() => new Promise(() => { })); // never resolves
+
+        renderWithRouter(<UploadPage />);
+        const file = new File(['test'], 'wait.txt', { type: 'text/plain' });
+        await userEvent.upload(document.querySelector('input[type="file"]'), file);
+        fireEvent.click(screen.getByRole('button', { name: /Upload 1 file/i }));
+
+        await waitFor(() => {
+            const btn = screen.getByRole('button', { name: /Uploading/ });
+            expect(btn).toBeDisabled();
+        });
+    });
 });
 
 describe('DownloadPage - Viewer (non-owner)', () => {

@@ -14,9 +14,19 @@ export default function UploadPage() {
     const navigate = useNavigate();
     const [files, setFiles] = useState([]);
     const [uploading, setUploading] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [uploadSpeed, setUploadSpeed] = useState(null);
     const [error, setError] = useState('');
     const [dragOver, setDragOver] = useState(false);
     const fileInputRef = useRef(null);
+    const startTimeRef = useRef(null);
+
+    function resetUpload() {
+        setUploading(false);
+        setProgress(0);
+        setUploadSpeed(null);
+        startTimeRef.current = null;
+    }
 
     function handleFiles(newFiles) {
         const fileArr = Array.from(newFiles);
@@ -41,15 +51,25 @@ export default function UploadPage() {
         }
         setUploading(true);
         setError('');
+        setProgress(0);
+        setUploadSpeed(null);
+        startTimeRef.current = performance.now();
         try {
             const formData = new FormData();
             files.forEach(f => formData.append('files', f));
             formData.append('retention_type', 'permanent');
-            const data = await api.upload(formData);
+            const data = await api.upload(formData, (loaded, total) => {
+                const pct = Math.round((loaded / total) * 100);
+                setProgress(pct);
+                const elapsed = (performance.now() - startTimeRef.current) / 1000;
+                if (elapsed > 0.1) {
+                    setUploadSpeed(loaded / elapsed);
+                }
+            });
             navigate(data.sharePath);
         } catch (e) {
             setError(e.message);
-            setUploading(false);
+            resetUpload();
         }
     }
 
@@ -96,6 +116,22 @@ export default function UploadPage() {
                             </li>
                         ))}
                     </ul>
+                )}
+                {uploading && (
+                    <div className="upload-progress">
+                        <div className="upload-progress-stats">
+                            <span className="upload-progress-pct">Uploading {progress}%</span>
+                            <span className="upload-progress-speed">
+                                {uploadSpeed !== null ? (uploadSpeed / 1e6).toFixed(2) + ' MB/s' : '—'}
+                            </span>
+                        </div>
+                        <div className="upload-progress-track">
+                            <div
+                                className="upload-progress-fill"
+                                style={{ width: progress + '%' }}
+                            />
+                        </div>
+                    </div>
                 )}
                 {error && <div className="alert alert-error">{error}</div>}
                 {files.length > 0 && (
