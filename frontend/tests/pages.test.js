@@ -50,6 +50,7 @@ function renderWithRouter(ui, { route = '/' } = {}) {
 beforeEach(() => {
     jest.clearAllMocks();
     mockNavigate.mockClear();
+    global.fetch = undefined;
 });
 
 describe('UploadPage', () => {
@@ -438,6 +439,189 @@ describe('DownloadPage - Owner', () => {
             expect(api.deleteUpload).toHaveBeenCalled();
             expect(screen.getByText('Upload Deleted')).toBeInTheDocument();
         });
+    });
+
+    test('QR button is visible next to share link for owner', async () => {
+        api.getUpload.mockResolvedValue({
+            id: 'A7kP',
+            hasPassword: false,
+            isOwner: true,
+            retention_type: 'permanent',
+            alias: null,
+            download_count: 0,
+            files: [{ id: 'f1', original_name: 'f.txt', size: 100 }],
+        });
+
+        renderWithRouter(<DownloadPage />, { route: '/d/A7kP' });
+        await waitFor(() => {
+            expect(screen.getByText('Share link')).toBeInTheDocument();
+        });
+
+        // The QR button has title "Show QR Code"
+        expect(screen.getByTitle('Show QR Code')).toBeInTheDocument();
+    });
+
+    test('clicking QR button opens dialog and fetches QR image', async () => {
+        // Mock fetch for QR code endpoint
+        const mockBlob = new Blob(['fake-png-data'], { type: 'image/png' });
+        global.fetch = jest.fn(() =>
+            Promise.resolve({ ok: true, blob: () => Promise.resolve(mockBlob) })
+        );
+
+        api.getUpload.mockResolvedValue({
+            id: 'A7kP',
+            hasPassword: false,
+            isOwner: true,
+            retention_type: 'permanent',
+            alias: null,
+            download_count: 0,
+            files: [{ id: 'f1', original_name: 'f.txt', size: 100 }],
+        });
+
+        renderWithRouter(<DownloadPage />, { route: '/d/A7kP' });
+        await waitFor(() => {
+            expect(screen.getByTitle('Show QR Code')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByTitle('Show QR Code'));
+
+        await waitFor(() => {
+            // Dialog heading should appear
+            expect(screen.getByText('QR Code')).toBeInTheDocument();
+        });
+
+        // Should show the QR image after fetch completes
+        await waitFor(() => {
+            const img = document.querySelector('.qr-modal-image img');
+            expect(img).toBeInTheDocument();
+            expect(img.alt).toBe('QR Code for share link');
+        });
+
+        // Download PNG link should be present
+        expect(screen.getByText('Download PNG')).toBeInTheDocument();
+    });
+
+    test('closing QR dialog by clicking overlay', async () => {
+        global.fetch = jest.fn(() =>
+            Promise.resolve({ ok: true, blob: () => Promise.resolve(new Blob(['data'])) })
+        );
+
+        api.getUpload.mockResolvedValue({
+            id: 'A7kP',
+            hasPassword: false,
+            isOwner: true,
+            retention_type: 'permanent',
+            alias: null,
+            download_count: 0,
+            files: [{ id: 'f1', original_name: 'f.txt', size: 100 }],
+        });
+
+        renderWithRouter(<DownloadPage />, { route: '/d/A7kP' });
+        await waitFor(() => {
+            expect(screen.getByTitle('Show QR Code')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByTitle('Show QR Code'));
+
+        await waitFor(() => {
+            expect(screen.getByText('QR Code')).toBeInTheDocument();
+        });
+
+        // Click the overlay (backdrop)
+        fireEvent.click(document.querySelector('.modal-overlay'));
+
+        await waitFor(() => {
+            expect(screen.queryByText('QR Code')).not.toBeInTheDocument();
+        });
+    });
+
+    test('closing QR dialog by clicking X button', async () => {
+        global.fetch = jest.fn(() =>
+            Promise.resolve({ ok: true, blob: () => Promise.resolve(new Blob(['data'])) })
+        );
+
+        api.getUpload.mockResolvedValue({
+            id: 'A7kP',
+            hasPassword: false,
+            isOwner: true,
+            retention_type: 'permanent',
+            alias: null,
+            download_count: 0,
+            files: [{ id: 'f1', original_name: 'f.txt', size: 100 }],
+        });
+
+        renderWithRouter(<DownloadPage />, { route: '/d/A7kP' });
+        await waitFor(() => {
+            expect(screen.getByTitle('Show QR Code')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByTitle('Show QR Code'));
+
+        await waitFor(() => {
+            expect(screen.getByText('QR Code')).toBeInTheDocument();
+        });
+
+        // Click the X close button
+        fireEvent.click(screen.getByLabelText('Close QR dialog'));
+
+        await waitFor(() => {
+            expect(screen.queryByText('QR Code')).not.toBeInTheDocument();
+        });
+    });
+
+    test('QR dialog reuses cached image on second open', async () => {
+        const fetchMock = jest.fn(() =>
+            Promise.resolve({ ok: true, blob: () => Promise.resolve(new Blob(['data'])) })
+        );
+        global.fetch = fetchMock;
+
+        // Mock FileReader to fire onload synchronously so qrDataUrl gets set
+        const origFileReader = global.FileReader;
+        global.FileReader = function () {
+            this.readAsDataURL = function (blob) {
+                this.result = 'data:image/png;base64,fake';
+                if (this.onload) this.onload();
+            };
+        };
+
+        api.getUpload.mockResolvedValue({
+            id: 'A7kP',
+            hasPassword: false,
+            isOwner: true,
+            retention_type: 'permanent',
+            alias: null,
+            download_count: 0,
+            files: [{ id: 'f1', original_name: 'f.txt', size: 100 }],
+        });
+
+        renderWithRouter(<DownloadPage />, { route: '/d/A7kP' });
+        await waitFor(() => {
+            expect(screen.getByTitle('Show QR Code')).toBeInTheDocument();
+        });
+
+        // Open first time
+        fireEvent.click(screen.getByTitle('Show QR Code'));
+        await waitFor(() => {
+            expect(screen.getByText('QR Code')).toBeInTheDocument();
+        });
+
+        // Close
+        fireEvent.click(screen.getByLabelText('Close QR dialog'));
+        await waitFor(() => {
+            expect(screen.queryByText('QR Code')).not.toBeInTheDocument();
+        });
+
+        // Open second time
+        fireEvent.click(screen.getByTitle('Show QR Code'));
+        await waitFor(() => {
+            expect(screen.getByText('QR Code')).toBeInTheDocument();
+        });
+
+        // fetch should only have been called once (image is cached)
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // Restore original FileReader
+        global.FileReader = origFileReader;
     });
 });
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Lock, Download, File, Archive, Trash2, QrCode, Copy, Check, RefreshCw } from 'lucide-react';
+import { Lock, Download, File, Archive, Trash2, QrCode, Copy, Check, RefreshCw, X } from 'lucide-react';
 import { api, fileDownloadUrl, zipDownloadUrl, qrDownloadUrl } from '../api';
 
 function formatSize(bytes) {
@@ -40,7 +40,7 @@ export default function DownloadPage() {
     const [newPassword, setNewPassword] = useState('');
     const [newAlias, setNewAlias] = useState('');
     const [saving, setSaving] = useState(false);
-    const [qrVisible, setQrVisible] = useState(false);
+    const [qrDialogOpen, setQrDialogOpen] = useState(false);
     const [qrDataUrl, setQrDataUrl] = useState('');
     const [copied, setCopied] = useState(false);
 
@@ -118,17 +118,25 @@ export default function DownloadPage() {
         }
     }
 
-    async function handleGenerateQr() {
-        const res = await fetch(qrDownloadUrl(upload.id || id));
-        if (res.ok) {
-            const blob = await res.blob();
-            const reader = new FileReader();
-            reader.onload = () => {
-                setQrDataUrl(reader.result);
-                setQrVisible(true);
-            };
-            reader.readAsDataURL(blob);
+    async function handleOpenQrDialog() {
+        setQrDialogOpen(true);
+        if (!qrDataUrl) {
+            try {
+                const res = await fetch(qrDownloadUrl(upload.id || id));
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const reader = new FileReader();
+                    reader.onload = () => setQrDataUrl(reader.result);
+                    reader.readAsDataURL(blob);
+                }
+            } catch {
+                // QR fetch failed silently — dialog stays open with no image
+            }
         }
+    }
+
+    function handleCloseQrDialog() {
+        setQrDialogOpen(false);
     }
 
     function handleCopyLink() {
@@ -335,30 +343,45 @@ export default function DownloadPage() {
                                 readOnly
                                 value={window.location.origin + '/d/' + (upload.alias || upload.id)}
                             />
-                            <button className="btn btn-secondary btn-sm" onClick={handleCopyLink}>
+                            <button className="btn btn-secondary btn-sm" onClick={handleCopyLink} title="Copy link">
                                 {copied ? <Check size={14} /> : <Copy size={14} />}
                             </button>
+                            <button className="btn btn-secondary btn-sm" onClick={handleOpenQrDialog} title="Show QR Code">
+                                <QrCode size={14} />
+                            </button>
                         </div>
-                    </div>
-
-                    <div className="qr-section">
-                        <button className="btn btn-secondary" onClick={handleGenerateQr} style={{ width: '100%' }}>
-                            <QrCode size={16} /> Generate QR Code
-                        </button>
-                        {qrVisible && qrDataUrl && (
-                            <div className="qr-display">
-                                <img src={qrDataUrl} alt="QR Code" />
-                                <a href={qrDownloadUrl(upload.id || id)} className="btn btn-secondary btn-sm" download>
-                                    Download PNG
-                                </a>
-                            </div>
-                        )}
                     </div>
 
                     <div className="delete-section">
                         <button className="btn btn-danger" onClick={handleDelete} style={{ width: '100%' }}>
                             <Trash2 size={16} /> Delete Upload
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {qrDialogOpen && (
+                <div className="modal-overlay" onClick={handleCloseQrDialog}>
+                    <div className="modal-content qr-modal" onClick={(e) => e.stopPropagation()}>
+                        <button className="modal-close" onClick={handleCloseQrDialog} aria-label="Close QR dialog">
+                            <X size={20} />
+                        </button>
+                        <h3>QR Code</h3>
+                        {qrDataUrl ? (
+                            <div className="qr-modal-image">
+                                <img src={qrDataUrl} alt="QR Code for share link" />
+                            </div>
+                        ) : (
+                            <p className="qr-modal-loading">Loading QR code...</p>
+                        )}
+                        <a
+                            href={qrDownloadUrl(upload.id || id)}
+                            className="btn btn-secondary"
+                            download
+                            style={{ marginTop: '12px', width: '100%' }}
+                        >
+                            Download PNG
+                        </a>
                     </div>
                 </div>
             )}

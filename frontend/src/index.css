@@ -354,25 +354,77 @@ a:hover {
 }
 
 .qr-section {
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid var(--mid-gray);
+    /* kept for backward compatibility, no longer used */
+    display: none;
 }
 
-.qr-display {
-    margin-top: 12px;
+/* ---- Modal / Dialog ---- */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 24px;
+}
+
+.modal-content {
+    background: var(--white);
+    border-radius: var(--radius);
+    padding: 32px;
+    position: relative;
+    max-width: 360px;
+    width: 100%;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18);
+}
+
+.modal-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: none;
+    border: none;
+    color: var(--gray);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    line-height: 0;
+}
+
+.modal-close:hover {
+    color: var(--dark-gray);
+    background: var(--light-gray);
+}
+
+.qr-modal {
     text-align: center;
-    padding: 12px;
+}
+
+.qr-modal h3 {
+    margin-bottom: 16px;
+    font-size: 1.1rem;
+}
+
+.qr-modal-image {
+    padding: 16px;
     border: 1px solid var(--mid-gray);
     border-radius: var(--radius);
     background: var(--white);
+    display: inline-block;
 }
 
-.qr-display img {
+.qr-modal-image img {
     display: block;
-    max-width: 180px;
+    max-width: 200px;
     height: auto;
-    margin: 0 auto 8px;
+}
+
+.qr-modal-loading {
+    color: var(--gray);
+    padding: 32px 0;
+    font-size: 0.95rem;
 }
 
 .delete-section {
